@@ -1,3 +1,4 @@
+// src/core/storage.rs
 use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use rustix::mount::{unmount, UnmountFlags};
@@ -38,6 +39,7 @@ fn try_setup_tmpfs(target: &Path) -> Result<bool> {
     }
 
     if utils::is_xattr_supported(target) {
+        // Explicitly set the root context for Tmpfs.
         if let Err(e) = utils::lsetfilecon(target, "u:object_r:system_file:s0") {
             log::warn!("Failed to set root context on tmpfs: {}", e);
         }
@@ -57,22 +59,35 @@ fn setup_ext4_image(target: &Path, image_path: &Path) -> Result<String> {
         bail!("modules.img not found at {}", image_path.display());
     }
     
-    utils::mount_image(image_path, target)
-        .context("Failed to mount modules.img")?;
+    // Attempt to mount with auto-repair logic
+    if let Err(e) = utils::mount_image(image_path, target) {
+        log::warn!("Initial mount failed ({}), attempting image repair...", e);
+        
+        // Try to repair the image using e2fsck
+        utils::repair_image(image_path).context("Failed to repair image")?;
+        
+        // Retry mount
+        log::info!("Retrying mount after repair...");
+        utils::mount_image(image_path, target).context("Failed to mount modules.img after repair")?;
+    }
 
+    // Repair storage root permissions immediately after mount.
     log::info!("Repairing storage root permissions...");
     
+    // 1. Chmod 0755
     use std::os::unix::fs::PermissionsExt;
     let mut perms = std::fs::metadata(target)?.permissions();
     perms.set_mode(0o755);
     std::fs::set_permissions(target, perms)?;
 
+    // 2. Chown 0:0 (Root:Root)
     use rustix::fs::{chown, Uid, Gid};
     unsafe {
         chown(target, Some(Uid::from_raw(0)), Some(Gid::from_raw(0)))
             .context("Failed to chown storage root")?;
     }
 
+    // 3. Restore SELinux Context
     utils::lsetfilecon(target, "u:object_r:system_file:s0")
         .context("Failed to set SELinux context on storage root")?;
         

@@ -32,7 +32,7 @@ const SELINUX_XATTR: &str = "security.selinux";
 const XATTR_TEST_FILE: &str = ".xattr_test";
 const DEFAULT_CONTEXT: &str = "u:object_r:system_file:s0";
 
-
+/// A simple formatter to enforce "[LEVEL] Message" format without timestamps.
 struct SimpleFormatter;
 
 impl<S, N> FormatEvent<S, N> for SimpleFormatter
@@ -53,6 +53,7 @@ where
     }
 }
 
+/// Initializes the tracing logging system.
 pub fn init_logging(verbose: bool, log_path: &Path) -> Result<WorkerGuard> {
     if let Some(parent) = log_path.parent() {
         create_dir_all(parent)?;
@@ -95,6 +96,7 @@ pub fn init_logging(verbose: bool, log_path: &Path) -> Result<WorkerGuard> {
         
         let location = info.location().map(|l| format!("{}:{}", l.file(), l.line())).unwrap_or_default();
         let error_msg = format!("\n[ERROR] PANIC: Thread crashed at {}: {}\n", location, msg);
+        
         if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(&log_path_buf) {
             let _ = writeln!(file, "{}", error_msg);
         }
@@ -151,7 +153,6 @@ pub fn ensure_dir_exists<T: AsRef<Path>>(dir: T) -> Result<()> {
     Ok(())
 }
 
-
 pub fn camouflage_process(name: &str) -> Result<()> {
     let c_name = CString::new(name)?;
     unsafe {
@@ -159,7 +160,6 @@ pub fn camouflage_process(name: &str) -> Result<()> {
     }
     Ok(())
 }
-
 
 pub fn is_xattr_supported(path: &Path) -> bool {
     let test_file = path.join(XATTR_TEST_FILE);
@@ -192,6 +192,23 @@ pub fn mount_image(image_path: &Path, target: &Path) -> Result<()> {
     if !status.success() {
         bail!("Mount command failed");
     }
+    Ok(())
+}
+
+/// Attempts to repair an ext4 image using e2fsck.
+pub fn repair_image(image_path: &Path) -> Result<()> {
+    log::info!("Running e2fsck on {}", image_path.display());
+    let status = Command::new("e2fsck")
+        .args(["-y", "-f"])
+        .arg(image_path)
+        .status()
+        .context("Failed to execute e2fsck")?;
+    if let Some(code) = status.code() {
+        if code > 2 {
+            bail!("e2fsck failed with exit code: {}", code);
+        }
+    }
+    
     Ok(())
 }
 
