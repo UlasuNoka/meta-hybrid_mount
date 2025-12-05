@@ -67,6 +67,21 @@ export const MockAPI = {
         };
     },
 
+    getDeviceStatus: async () => {
+        await delay(500);
+        return {
+            model: 'Pixel 7 Pro (Mock)',
+            android: '14',
+            kernel: '5.10.177-android12-9-00001-g5d3f2a',
+            selinux: 'Enforcing'
+        };
+    },
+
+    getVersion: async () => {
+        await delay(300);
+        return "v1.0.1-r1-mock";
+    },
+
     getActiveMounts: async () => {
         return ['system', 'product'];
     },
