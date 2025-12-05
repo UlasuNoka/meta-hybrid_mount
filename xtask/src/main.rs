@@ -175,7 +175,7 @@ fn build_webui(root: &Path) -> Result<()> {
 }
 
 fn generate_webui_constants(root: &Path) -> Result<()> {
-    let path = root.join("webui/src/lib/constants_gen.js");
+    let path = root.join("webui/src/lib/constants_gen.ts");
     let content = r#"
 export const RUST_PATHS = {
   CONFIG: "/data/adb/meta-hybrid/config.toml",
@@ -183,13 +183,19 @@ export const RUST_PATHS = {
   IMAGE_MNT: "/data/adb/meta-hybrid/img_mnt",
   DAEMON_STATE: "/data/adb/meta-hybrid/run/daemon_state.json",
   DAEMON_LOG: "/data/adb/meta-hybrid/daemon.log",
-};
-export const BUILTIN_PARTITIONS = ["system", "vendor", "product", "system_ext", "odm", "oem"];
+} as const;
+
+export const BUILTIN_PARTITIONS = ["system", "vendor", "product", "system_ext", "odm", "oem"] as const;
 "#;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
     fs::write(path, content)?;
+    let old_path = root.join("webui/src/lib/constants_gen.js");
+    if old_path.exists() {
+        let _ = fs::remove_file(old_path);
+    }
+    
     Ok(())
 }
 
