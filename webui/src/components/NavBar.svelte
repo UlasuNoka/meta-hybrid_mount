@@ -10,12 +10,9 @@
 
   let { activeTab, onTabChange }: Props = $props();
   
-  let showLangMenu = $state(false);
   let navContainer = $state<HTMLElement>();
-  let langButtonRef = $state<HTMLButtonElement>();
-  let menuRef = $state<HTMLDivElement>();
   let tabRefs = $state<Record<string, HTMLButtonElement>>({});
-  
+
   const TABS = [
     { id: 'status', icon: ICONS.home },
     { id: 'config', icon: ICONS.settings },
@@ -24,6 +21,7 @@
     { id: 'info', icon: ICONS.info }
   ];
 
+  // Auto-scroll the active tab into view (useful for small screens)
   $effect(() => {
     if (activeTab && tabRefs[activeTab] && navContainer) {
       const tab = tabRefs[activeTab];
@@ -38,84 +36,20 @@
       });
     }
   });
-
-  function toggleTheme() {
-    let nextTheme: 'light' | 'dark' | 'auto';
-    let toastMsg: string;
-
-    if (store.theme === 'auto') {
-      nextTheme = 'light';
-      toastMsg = store.L.common.themeLight;
-    } else if (store.theme === 'light') {
-      nextTheme = 'dark';
-      toastMsg = store.L.common.themeDark;
-    } else {
-      nextTheme = 'auto';
-      toastMsg = store.L.common.themeAuto;
-    }
-
-    store.setTheme(nextTheme);
-    store.showToast(toastMsg, 'info');
-  }
-
-  function getThemeIcon() {
-    if (store.theme === 'auto') return ICONS.auto_mode;
-    if (store.theme === 'light') return ICONS.light_mode;
-    return ICONS.dark_mode;
-  }
-
-  function setLang(code: string) {
-    store.setLang(code);
-    showLangMenu = false;
-  }
-  
-  function handleOutsideClick(e: MouseEvent) {
-    if (showLangMenu && 
-        menuRef && !menuRef.contains(e.target as Node) && 
-        langButtonRef && !langButtonRef.contains(e.target as Node)) {
-      showLangMenu = false;
-    }
-  }
 </script>
 
-<svelte:window onclick={handleOutsideClick} />
-
-<header class="app-bar">
-  <div class="app-bar-content">
-    <h1 class="screen-title">{store.L.common.appName}</h1>
-    <div class="top-actions">
-      <button class="btn-icon" onclick={toggleTheme} title={store.L.common.theme}>
-        <svg viewBox="0 0 24 24"><path d={getThemeIcon()} fill="currentColor"/></svg>
-      </button>
-      <button 
-        class="btn-icon" 
-        bind:this={langButtonRef}
-        onclick={() => showLangMenu = !showLangMenu} 
-        title={store.L.common.language}
-      >
-        <svg viewBox="0 0 24 24"><path d={ICONS.translate} fill="currentColor"/></svg>
-      </button>
-    </div>
-  </div>
-  
-  {#if showLangMenu}
-    <div class="menu-dropdown" bind:this={menuRef}>
-      {#each store.availableLanguages as l}
-        <button class="menu-item" onclick={() => setLang(l.code)}>{l.name}</button>
-      {/each}
-    </div>
-  {/if}
-
-  <nav class="nav-tabs" bind:this={navContainer}>
-    {#each TABS as tab}
-      <button 
-        class="nav-tab {activeTab === tab.id ? 'active' : ''}" 
-        onclick={() => onTabChange(tab.id)}
-        bind:this={tabRefs[tab.id]}
-      >
+<nav class="bottom-nav" bind:this={navContainer}>
+  {#each TABS as tab}
+    <button 
+      class="nav-tab {activeTab === tab.id ? 'active' : ''}" 
+      onclick={() => onTabChange(tab.id)}
+      bind:this={tabRefs[tab.id]}
+      type="button"
+    >
+      <div class="icon-container">
         <svg viewBox="0 0 24 24"><path d={tab.icon}/></svg>
-        <span>{store.L.tabs[tab.id as keyof typeof store.L.tabs]}</span>
-      </button>
-    {/each}
-  </nav>
-</header>
+      </div>
+      <span class="label">{store.L.tabs[tab.id as keyof typeof store.L.tabs]}</span>
+    </button>
+  {/each}
+</nav>

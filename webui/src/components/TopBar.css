@@ -1,0 +1,85 @@
+.top-bar {
+  flex-shrink: 0;
+  background-color: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface);
+  padding-top: max(36px, env(safe-area-inset-top)); 
+  padding-bottom: 8px;
+
+  box-shadow: var(--md-sys-elevation-1);
+  transition: background-color 0.3s ease;
+  position: relative;
+  z-index: 20;
+}
+
+.top-bar-content {
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+}
+
+.screen-title {
+  margin: 0;
+  font-size: 22px; /* 稍微大一点的字号 */
+  font-weight: 600;
+  letter-spacing: -0.5px;
+}
+
+.top-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Icon Buttons */
+.btn-icon {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 50%;
+  color: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.btn-icon:hover {
+  background-color: var(--md-sys-color-surface-variant);
+}
+.btn-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+/* Dropdown Menu */
+.menu-dropdown {
+  position: absolute;
+  /* 调整下拉菜单位置，确保它出现在按钮下方 */
+  top: calc(100% - 4px); 
+  right: 16px;
+  background: var(--md-sys-color-surface-container-high);
+  border-radius: 12px;
+  padding: 8px 0;
+  box-shadow: var(--md-sys-elevation-3);
+  z-index: 1000;
+  min-width: 140px;
+  overflow: hidden;
+  border: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.menu-item {
+  width: 100%;
+  padding: 12px 24px;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--md-sys-color-on-surface);
+  cursor: pointer;
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.menu-item:hover {
+  background: var(--md-sys-color-surface-variant);
+}

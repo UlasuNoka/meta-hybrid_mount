@@ -5,6 +5,7 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  background-color: var(--md-sys-color-background);
 }
 
 .main-content {
@@ -33,20 +34,20 @@
 .page-scroller {
   height: 100%;
   overflow-y: auto;
-  padding: 24px;
-  padding-bottom: 88px;
+  padding: 16px;
+  padding-bottom: calc(160px + env(safe-area-inset-bottom));
+  
   box-sizing: border-box;
   width: 100%;
   max-width: 800px;
   margin: 0 auto;
 }
 
-.tab-pane {
-  width: 100%;
-  height: 100%;
-  overflow-y: auto;
-  padding: 16px;
-  padding-bottom: 100px;
-  max-width: 800px;
-  margin: 0 auto;
+/* Global scrollbar styling for webkit */
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--md-sys-color-outline-variant);
+  border-radius: 2px;
 }

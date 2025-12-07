@@ -1,13 +1,18 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { store } from './lib/store.svelte';
-  import NavBar from './components/NavBar.svelte';
+  
+  // Import separated components
+  import TopBar from './components/TopBar.svelte';
+  import NavBar from './components/NavBar.svelte'; // Now serves as BottomBar
+  
   import Toast from './components/Toast.svelte';
   import StatusTab from './routes/StatusTab.svelte';
   import ConfigTab from './routes/ConfigTab.svelte';
   import ModulesTab from './routes/ModulesTab.svelte';
   import LogsTab from './routes/LogsTab.svelte';
   import InfoTab from './routes/InfoTab.svelte';
+  
   import './app.css';
   import './layout.css';
 
@@ -37,14 +42,16 @@
     const currentY = e.changedTouches[0].screenY;
     let diffX = currentX - touchStartX;
     const diffY = currentY - touchStartY;
-
+    
+    // Lock to horizontal swipe
     if (Math.abs(diffY) > Math.abs(diffX)) {
       return;
     }
 
     if (e.cancelable) e.preventDefault();
+    
+    // Add resistance at edges
     const currentIndex = TABS.indexOf(activeTab);
-
     if ((currentIndex === 0 && diffX > 0) || (currentIndex === TABS.length - 1 && diffX < 0)) {
       diffX = diffX / 3;
     }
@@ -80,7 +87,7 @@
 </script>
 
 <div class="app-root">
-  <NavBar {activeTab} onTabChange={switchTab} />
+  <TopBar />
 
   <main class="main-content" 
         bind:clientWidth={containerWidth}
@@ -93,24 +100,16 @@
          style:transform={`translateX(calc(${baseTranslateX}% + ${dragOffset}px))`}
          style:transition={isDragging ? 'none' : 'transform 0.3s cubic-bezier(0.25, 0.8, 0.5, 1)'}>
       
-      <div class="swipe-page">
-        <div class="page-scroller"><StatusTab /></div>
-      </div>
-      <div class="swipe-page">
-        <div class="page-scroller"><ConfigTab /></div>
-      </div>
-      <div class="swipe-page">
-        <div class="page-scroller"><ModulesTab /></div>
-      </div>
-      <div class="swipe-page">
-        <div class="page-scroller"><LogsTab /></div>
-      </div>
-      <div class="swipe-page">
-        <div class="page-scroller"><InfoTab /></div>
-      </div>
+      <div class="swipe-page"><div class="page-scroller"><StatusTab /></div></div>
+      <div class="swipe-page"><div class="page-scroller"><ConfigTab /></div></div>
+      <div class="swipe-page"><div class="page-scroller"><ModulesTab /></div></div>
+      <div class="swipe-page"><div class="page-scroller"><LogsTab /></div></div>
+      <div class="swipe-page"><div class="page-scroller"><InfoTab /></div></div>
 
     </div>
   </main>
+
+  <NavBar {activeTab} onTabChange={switchTab} />
 
   <Toast />
 </div>
