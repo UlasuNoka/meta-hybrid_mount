@@ -3,6 +3,7 @@ use std::{
     os::unix::fs::{MetadataExt, symlink},
     path::{Path, PathBuf},
     collections::hash_map::Entry,
+    collections::{HashMap, HashSet},
 };
 
 use anyhow::{Context, Result, bail};
@@ -50,7 +51,11 @@ fn merge_nodes(high: &mut Node, low: Node) {
     }
 }
 
-fn process_module(path: &Path, extra_partitions: &[String]) -> Result<(Node, Node)> {
+fn process_module(
+    path: &Path, 
+    extra_partitions: &[String],
+    exclusion_list: Option<&HashSet<String>>
+) -> Result<(Node, Node)> {
     let mut root = Node::new_root("");
     let mut system = Node::new_root("system");
 
@@ -61,12 +66,26 @@ fn process_module(path: &Path, extra_partitions: &[String]) -> Result<(Node, Nod
         return Ok((root, system));
     }
 
-    let mod_system = path.join("system");
-    if mod_system.is_dir() {
-        system.collect_module_files(&mod_system)?;
+    let is_excluded = |part: &str| -> bool {
+        if let Some(list) = exclusion_list {
+            list.contains(part)
+        } else {
+            false
+        }
+    };
+
+    if !is_excluded("system") {
+        let mod_system = path.join("system");
+        if mod_system.is_dir() {
+            system.collect_module_files(&mod_system)?;
+        }
     }
 
     for partition in ROOT_PARTITIONS {
+        if is_excluded(partition) {
+            continue;
+        }
+
         let mod_part = path.join(partition);
         if mod_part.is_dir() {
             let node = system.children.entry(partition.to_string())
@@ -83,6 +102,10 @@ fn process_module(path: &Path, extra_partitions: &[String]) -> Result<(Node, Nod
 
     for partition in extra_partitions {
         if ROOT_PARTITIONS.contains(&partition.as_str()) || partition == "system" {
+            continue;
+        }
+
+        if is_excluded(partition) {
             continue;
         }
 
@@ -112,9 +135,16 @@ fn process_module(path: &Path, extra_partitions: &[String]) -> Result<(Node, Nod
     Ok((root, system))
 }
 
-fn collect_module_files(module_paths: &[PathBuf], extra_partitions: &[String]) -> Result<Option<Node>> {
+fn collect_module_files(
+    module_paths: &[PathBuf], 
+    extra_partitions: &[String],
+    exclusions: &HashMap<PathBuf, HashSet<String>>
+) -> Result<Option<Node>> {
     let (mut final_root, mut final_system) = module_paths.par_iter()
-        .map(|path| process_module(path, extra_partitions))
+        .map(|path| {
+            let exclusion = exclusions.get(path);
+            process_module(path, extra_partitions, exclusion)
+        })
         .reduce(
             || Ok((Node::new_root(""), Node::new_root("system"))),
             |a, b| {
@@ -239,7 +269,6 @@ impl MagicMount {
                         let file_type = NodeFileType::from(metadata.file_type());
                         file_type != node.file_type || file_type == NodeFileType::Symlink
                     } else {
-                        // real path not exists
                         true
                     }
                 }
@@ -287,7 +316,6 @@ impl MagicMount {
             mount_bind(module_path, target_path).with_context(|| {
                 #[cfg(any(target_os = "linux", target_os = "android"))]
                 if self.umount {
-                    // tell ksu about this mount
                     let _ = send_unmountable(target_path);
                 }
                 format!(
@@ -296,7 +324,6 @@ impl MagicMount {
                     self.work_dir_path.display(),
                 )
             })?;
-            // we should use MS_REMOUNT | MS_BIND | MS_xxx to change mount flags
             if let Err(e) = mount_remount(target_path, MountFlags::RDONLY | MountFlags::BIND, "") {
                 log::warn!("make file {} ro: {e:#?}", target_path.display());
             }
@@ -457,14 +484,12 @@ impl MagicMount {
                         self.path.display()
                     )
                 })?;
-            // make private to reduce peer group count
             if let Err(e) = mount_change(&self.path, MountPropagationFlags::PRIVATE) {
                 log::warn!("make dir {} private: {e:#?}", self.path.display());
             }
 
             #[cfg(any(target_os = "linux", target_os = "android"))]
             if self.umount {
-                // tell ksu about this one too
                 let _ = send_unmountable(&self.path);
             }
         }
@@ -497,10 +522,11 @@ pub fn mount_partitions(
     module_paths: &[PathBuf],
     mount_source: &str,
     extra_partitions: &[String],
+    exclusions: HashMap<PathBuf, HashSet<String>>,
     #[cfg(any(target_os = "linux", target_os = "android"))] disable_umount: bool,
     #[cfg(not(any(target_os = "linux", target_os = "android")))] _disable_umount: bool,
 ) -> Result<()> {
-    if let Some(root) = collect_module_files(module_paths, extra_partitions)? {
+    if let Some(root) = collect_module_files(module_paths, extra_partitions, &exclusions)? {
         log::debug!("[Magic Mount Tree Constructed]");
         let tree_str = format!("{:?}", root);
         for line in tree_str.lines() {

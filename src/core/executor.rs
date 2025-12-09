@@ -1,11 +1,12 @@
 use std::path::{Path, PathBuf};
+use std::collections::{HashMap, HashSet};
 use anyhow::Result;
 use rayon::prelude::*;
 use crate::{
     conf::config, 
     mount::{magic, overlay, hymofs::HymoFs}, 
     utils,
-    core::planner::MountPlan
+    core::planner::{MountPlan, OverlayOperation}
 };
 
 pub struct ExecutionResult {
@@ -24,48 +25,106 @@ fn extract_module_root(partition_path: &Path) -> Option<PathBuf> {
     partition_path.parent().map(|p| p.to_path_buf())
 }
 
+struct PendingOverlayItem {
+    source: PathBuf,
+    partition: String,
+}
+
+struct OverlayResult {
+    magic_roots: Vec<PathBuf>,
+    fallback_ids: Vec<String>,
+    success_records: Vec<(PathBuf, String)>,
+}
+
 pub fn execute(plan: &MountPlan, config: &config::Config) -> Result<ExecutionResult> {
     let mut magic_queue = plan.magic_module_paths.clone();
-    let mut final_overlay_ids = plan.overlay_module_ids.clone();
-    let mut final_hymo_ids = plan.hymo_module_ids.clone();
+    let mut global_success_map: HashMap<PathBuf, HashSet<String>> = HashMap::new();
     
-    // --- HymoFS Execution ---
-    let mut hymo_fallback_ids = Vec::new();
+    let mut final_overlay_ids = HashSet::new();
+    let mut final_hymo_ids = HashSet::new();
+    
+    plan.overlay_module_ids.iter().for_each(|id| { final_overlay_ids.insert(id.clone()); });
+    plan.hymo_module_ids.iter().for_each(|id| { final_hymo_ids.insert(id.clone()); });
+
+    let mut pending_hymo_fallbacks: Vec<PendingOverlayItem> = Vec::new();
+
     if !plan.hymo_ops.is_empty() {
         if HymoFs::is_available() {
-            log::info!(">> Initializing HymoFS Engine...");
+            log::info!(">> Phase 1: HymoFS Injection...");
             if let Err(e) = HymoFs::clear() {
                 log::warn!("Failed to reset HymoFS rules: {}", e);
             }
 
             for op in &plan.hymo_ops {
+                let part_name = op.target.file_name()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "unknown".to_string());
+                
                 log::debug!("Injecting {} -> {}", op.source.display(), op.target.display());
-                if let Err(e) = HymoFs::inject_directory(&op.target, &op.source) {
-                    log::error!("HymoFS injection failed for {}: {}", op.module_id, e);
-                    // Mark for fallback
-                    if let Some(root) = extract_module_root(&op.source) {
-                        magic_queue.push(root);
-                        hymo_fallback_ids.push(op.module_id.clone());
+                
+                match HymoFs::inject_directory(&op.target, &op.source) {
+                    Ok(_) => {
+                        if let Some(root) = extract_module_root(&op.source) {
+                            global_success_map.entry(root).or_default().insert(part_name);
+                        }
+                    },
+                    Err(e) => {
+                        log::error!("HymoFS failed for {}: {}. Queueing for Overlay.", op.module_id, e);
+                        pending_hymo_fallbacks.push(PendingOverlayItem {
+                            source: op.source.clone(),
+                            partition: part_name,
+                        });
+                        final_hymo_ids.remove(&op.module_id);
                     }
                 }
             }
         } else {
-            log::warn!("!! HymoFS requested but kernel support is missing. Falling back to Magic Mount.");
+            log::warn!("!! HymoFS requested but kernel support is missing. Falling back to Overlay/Magic.");
             for op in &plan.hymo_ops {
-                 if let Some(root) = extract_module_root(&op.source) {
-                    magic_queue.push(root);
-                    hymo_fallback_ids.push(op.module_id.clone());
-                }
+                let part_name = op.target.file_name()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "unknown".to_string());
+
+                pending_hymo_fallbacks.push(PendingOverlayItem {
+                    source: op.source.clone(),
+                    partition: part_name,
+                });
+                final_hymo_ids.remove(&op.module_id);
             }
         }
     }
+
+    let mut merged_overlay_ops = plan.overlay_ops.clone();
     
-    if !hymo_fallback_ids.is_empty() {
-        final_hymo_ids.retain(|id| !hymo_fallback_ids.contains(id));
+    if !pending_hymo_fallbacks.is_empty() {
+        log::info!(">> Phase 2: Merging {} Hymo failures into Overlay plan...", pending_hymo_fallbacks.len());
+        
+        for item in pending_hymo_fallbacks {
+            if let Some(op) = merged_overlay_ops.iter_mut().find(|o| o.partition_name == item.partition) {
+                op.lowerdirs.insert(0, item.source.clone());
+            } else {
+                let target_path = Path::new("/").join(&item.partition);
+                if target_path.exists() {
+                     merged_overlay_ops.push(OverlayOperation {
+                        partition_name: item.partition,
+                        target: target_path.to_string_lossy().to_string(),
+                        lowerdirs: vec![item.source],
+                    });
+                } else {
+                    log::warn!("Cannot fallback Hymo module for non-existent partition: {}", item.partition);
+                    if let Some(root) = extract_module_root(&item.source) {
+                        magic_queue.push(root);
+                    }
+                }
+            }
+            if let Some(id) = extract_id(&item.source) {
+                final_overlay_ids.insert(id);
+            }
+        }
     }
 
-    // --- OverlayFS Execution ---
-    let fallback_data: Vec<(Vec<PathBuf>, Vec<String>)> = plan.overlay_ops.par_iter()
+    log::info!(">> Phase 3: OverlayFS Execution...");
+    let overlay_results: Vec<OverlayResult> = merged_overlay_ops.par_iter()
         .map(|op| {
             let lowerdir_strings: Vec<String> = op.lowerdirs.iter()
                 .map(|p| p.display().to_string())
@@ -87,25 +146,42 @@ pub fn execute(plan: &MountPlan, config: &config::Config) -> Result<ExecutionRes
                         }
                     }
                 }
-                return (local_magic, local_fallback_ids);
+                return OverlayResult {
+                    magic_roots: local_magic,
+                    fallback_ids: local_fallback_ids,
+                    success_records: Vec::new(),
+                };
             }
             
-            (Vec::new(), Vec::new())
+            let mut successes = Vec::new();
+            for layer_path in &op.lowerdirs {
+                 if let Some(root) = extract_module_root(layer_path) {
+                     successes.push((root, op.partition_name.clone()));
+                 }
+            }
+
+            OverlayResult {
+                magic_roots: Vec::new(),
+                fallback_ids: Vec::new(),
+                success_records: successes,
+            }
         })
         .collect();
 
-    let mut fallback_ids = Vec::new();
-    for (paths, ids) in fallback_data {
-        magic_queue.extend(paths);
-        fallback_ids.extend(ids);
+    for res in overlay_results {
+        magic_queue.extend(res.magic_roots);
+        
+        for id in res.fallback_ids {
+            final_overlay_ids.remove(&id); 
+        }
+        
+        for (root, partition) in res.success_records {
+            global_success_map.entry(root)
+                .or_default()
+                .insert(partition);
+        }
     }
 
-    if !fallback_ids.is_empty() {
-        final_overlay_ids.retain(|id| !fallback_ids.contains(id));
-        log::info!("{} modules fell back to Magic Mount.", fallback_ids.len());
-    }
-
-    // --- Magic Mount Execution ---
     magic_queue.sort();
     magic_queue.dedup();
 
@@ -124,7 +200,7 @@ pub fn execute(plan: &MountPlan, config: &config::Config) -> Result<ExecutionRes
             }
         }
         
-        log::info!("Executing Magic Mount for {} modules...", magic_queue.len());
+        log::info!(">> Phase 4: Magic Mount (Complementary Fallback) for {} modules...", magic_queue.len());
         
         utils::ensure_temp_dir(&tempdir)?;
         
@@ -133,6 +209,7 @@ pub fn execute(plan: &MountPlan, config: &config::Config) -> Result<ExecutionRes
             &magic_queue, 
             &config.mountsource, 
             &config.partitions, 
+            global_success_map, 
             config.disable_umount
         ) {
             log::error!("Magic Mount critical failure: {:#}", e);
@@ -142,16 +219,18 @@ pub fn execute(plan: &MountPlan, config: &config::Config) -> Result<ExecutionRes
         utils::cleanup_temp_dir(&tempdir);
     }
 
-    final_overlay_ids.sort();
-    final_overlay_ids.dedup();
-    final_hymo_ids.sort();
-    final_hymo_ids.dedup();
-    final_magic_ids.sort();
-    final_magic_ids.dedup();
+    let mut result_overlay = final_overlay_ids.into_iter().collect::<Vec<_>>();
+    let mut result_hymo = final_hymo_ids.into_iter().collect::<Vec<_>>();
+    let mut result_magic = final_magic_ids;
+
+    result_overlay.sort();
+    result_hymo.sort();
+    result_magic.sort();
+    result_magic.dedup();
 
     Ok(ExecutionResult {
-        overlay_module_ids: final_overlay_ids,
-        hymo_module_ids: final_hymo_ids,
-        magic_module_ids: final_magic_ids,
+        overlay_module_ids: result_overlay,
+        hymo_module_ids: result_hymo,
+        magic_module_ids: result_magic,
     })
 }
