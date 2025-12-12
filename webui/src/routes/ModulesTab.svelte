@@ -2,7 +2,8 @@
   import { store } from '../lib/store.svelte';
   import { ICONS } from '../lib/constants';
   import { onMount } from 'svelte';
-  import { slide } from 'svelte/transition';
+  import { fly } from 'svelte/transition';
+  import { cubicOut } from 'svelte/easing';
   import Skeleton from '../components/Skeleton.svelte';
   import BottomActions from '../components/BottomActions.svelte';
   import { API } from '../lib/api';
@@ -63,7 +64,12 @@
   }));
 
   function toggleExpand(id: string) {
-    expandedId = expandedId === id ? null : id;
+    if (expandedId === id) {
+      expandedId = null;
+    } else {
+      expandedId = id;
+      showConflicts = false;
+    }
   }
 
   function handleKeydown(e: KeyboardEvent, id: string) {
@@ -115,48 +121,77 @@
   }
 
   async function checkConflicts() {
-      showConflicts = !showConflicts;
-      if (showConflicts && store.conflicts.length === 0) {
-          await store.loadConflicts();
+      if (showConflicts) {
+          showConflicts = false;
+      } else {
+          showConflicts = true;
+          expandedId = null;
+          if (store.conflicts.length === 0) {
+              await store.loadConflicts();
+          }
       }
+  }
+
+  function closeConflicts() {
+      showConflicts = false;
   }
 </script>
 
-<div class="md3-card desc-card" style="padding-bottom: 8px;">
-  <p class="desc-text" style="margin-bottom: 12px;">
-    {store.L.modules?.desc}
-  </p>
-  <button class="btn-tonal conflict-btn" onclick={checkConflicts}>
-    {showConflicts ? (store.L.modules?.hideConflicts || 'Hide Conflicts') : (store.L.modules?.checkConflicts || 'Check Conflicts')}
-  </button>
-</div>
-
-{#if showConflicts}
-    <div class="md3-card conflict-panel" transition:slide>
-        <div class="conflict-header">
-            {store.L.modules?.conflictsTitle || 'File Conflicts'}
-        </div>
-        {#if store.loading.conflicts}
-            <Skeleton width="100%" height="24px" />
-            <Skeleton width="100%" height="24px" />
-        {:else if store.conflicts.length === 0}
-            <div class="conflict-empty">{store.L.modules?.noConflicts || 'No file conflicts detected.'}</div>
-        {:else}
-            <div class="conflict-list">
-                {#each store.conflicts as conflict}
-                    <div class="conflict-item">
-                        <div class="conflict-path">
-                            /{conflict.partition}/{conflict.relative_path}
-                        </div>
-                        <div class="conflict-modules">
-                            {conflict.contending_modules.join(' vs ')}
-                        </div>
-                    </div>
-                {/each}
-            </div>
-        {/if}
+<div class="header-wrapper">
+    <div class="md3-card desc-card">
+      <p class="desc-text" style="margin-bottom: 12px;">
+        {store.L.modules?.desc}
+      </p>
+      <button class="btn-tonal conflict-btn" onclick={checkConflicts} class:active={showConflicts}>
+        {showConflicts ? (store.L.modules?.hideConflicts || 'Hide Conflicts') : (store.L.modules?.checkConflicts || 'Check Conflicts')}
+      </button>
     </div>
-{/if}
+
+    {#if showConflicts}
+        <div 
+            class="md3-card conflict-panel" 
+            transition:fly={{ y: -10, duration: 300, easing: cubicOut }}
+        >
+            <div class="conflict-header-row">
+                <div class="conflict-title">
+                    <svg viewBox="0 0 24 24" width="20" height="20" class="conflict-icon"><path d={ICONS.warning} fill="currentColor"/></svg>
+                    {store.L.modules?.conflictsTitle || 'File Conflicts'}
+                </div>
+                <button class="btn-icon-small" onclick={closeConflicts} title="Close">
+                    <svg viewBox="0 0 24 24" width="18" height="18"><path d={ICONS.close} fill="currentColor"/></svg>
+                </button>
+            </div>
+
+            {#if store.loading.conflicts}
+                <div class="skeleton-group">
+                    <Skeleton width="100%" height="40px" />
+                    <Skeleton width="100%" height="40px" />
+                    <Skeleton width="80%" height="40px" />
+                </div>
+            {:else if store.conflicts.length === 0}
+                <div class="conflict-empty">
+                    <svg viewBox="0 0 24 24" width="48" height="48" style="opacity: 0.2; margin-bottom: 8px;"><path d={ICONS.check} fill="currentColor"/></svg>
+                    <div>{store.L.modules?.noConflicts || 'No file conflicts detected.'}</div>
+                </div>
+            {:else}
+                <div class="conflict-list">
+                    {#each store.conflicts as conflict}
+                        <div class="conflict-item">
+                            <div class="conflict-path">
+                                /{conflict.partition}/{conflict.relative_path}
+                            </div>
+                            <div class="conflict-modules">
+                                {#each conflict.contending_modules as modName}
+                                    <span class="module-capsule">{modName}</span>
+                                {/each}
+                            </div>
+                        </div>
+                    {/each}
+                </div>
+            {/if}
+        </div>
+    {/if}
+</div>
 
 <div class="search-container">
   <svg class="search-icon" viewBox="0 0 24 24"><path d={ICONS.search} /></svg>
@@ -242,7 +277,7 @@
         </div>
        
         {#if expandedId === mod.id}
-          <div class="rule-details" transition:slide={{ duration: 200 }}>
+          <div class="rule-details" transition:slide={{ duration: 200, easing: cubicOut }}>
             <p class="module-desc">{mod.description || (store.L.modules?.noDesc ?? 'No description')}</p>
             <p class="module-meta">{store.L.modules?.author ?? 'Author'}: {mod.author || (store.L.modules?.unknown ?? 'Unknown')}</p>
             
