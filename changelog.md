@@ -1,9 +1,8 @@
-## v1.5.3
+## v1.6.0
 
-Changes since v1.5.2:
-* fix(webui): re-import missing 'slide' transition
-* style(webui): refactor conflict panel to floating overlay
-* fix: resolve compilation error and unused imports
-* feat(webui): add system diagnostics, conflict monitor and i18n support
-* feat: add conflict monitor, system diagnostics and hymofs version display
-* chore(release): bump version to v1.5.2 [skip ci]
+Changes since v1.5.4:
+* Fix HymoFS compilation warnings and align ioctl struct with kernel patch
+* Fix mount permission issues: move mount point to /dev and improve context repair
+* Fix HymoFS mounting: add missing directory injection logic and verbose logging
+* refactor(hymofs): strict logic alignment
+* refactor(hymofs): align implementation
