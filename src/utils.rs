@@ -24,7 +24,8 @@ use tracing_subscriber::{
 use tracing_appender::non_blocking::WorkerGuard;
 use crate::defs;
 use crate::defs::TMPFS_CANDIDATES;
-
+#[cfg(any(target_os = "linux", target_os = "android"))]
+use nix::ioctl_write_ptr_bad;
 #[cfg(any(target_os = "linux", target_os = "android"))]
 use extattr::{Flags as XattrFlags, lsetxattr};
 
@@ -335,32 +336,10 @@ pub fn ensure_temp_dir(temp_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-const K: u32 = b'K' as u32;
-
-const _IOC_NRBITS: u32 = 8;
-const _IOC_TYPEBITS: u32 = 8;
-const _IOC_SIZEBITS: u32 = 14;
-const _IOC_DIRBITS: u32 = 2;
-
-const _IOC_NRSHIFT: u32 = 0;
-const _IOC_TYPESHIFT: u32 = _IOC_NRSHIFT + _IOC_NRBITS;
-const _IOC_SIZESHIFT: u32 = _IOC_TYPESHIFT + _IOC_TYPEBITS;
-const _IOC_DIRSHIFT: u32 = _IOC_SIZESHIFT + _IOC_SIZEBITS;
-
-const _IOC_WRITE: u32 = 1;
-
-const fn _ioc(dir: u32, type_: u32, nr: u32, size: u32) -> u32 {
-    (dir << _IOC_DIRSHIFT) | (type_ << _IOC_TYPESHIFT) | (nr << _IOC_NRSHIFT) | (size << _IOC_SIZESHIFT)
-}
-
-const fn _iow(type_: u32, nr: u32, size: u32) -> u32 {
-    _ioc(_IOC_WRITE, type_, nr, size)
-}
-
 const KSU_INSTALL_MAGIC1: u32 = 0xDEADBEEF;
 const KSU_INSTALL_MAGIC2: u32 = 0xCAFEBABE;
 const KSU_IOCTL_NUKE_EXT4_SYSFS: u32 = 0x40004b11; 
-const KSU_IOCTL_ADD_TRY_UMOUNT: i32 = _iow(K, 18, 0) as i32;
+const KSU_IOCTL_ADD_TRY_UMOUNT: u32 = 0x40004b12;
 
 static DRIVER_FD: OnceLock<RawFd> = OnceLock::new();
 
@@ -377,6 +356,12 @@ struct KsuAddTryUmount {
 struct NukeExt4SysfsCmd {
     arg: u64,
 }
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+ioctl_write_ptr_bad!(ksu_add_try_umount, KSU_IOCTL_ADD_TRY_UMOUNT, KsuAddTryUmount);
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+ioctl_write_ptr_bad!(ksu_nuke_ext4_sysfs, KSU_IOCTL_NUKE_EXT4_SYSFS, NukeExt4SysfsCmd);
 
 fn grab_fd() -> i32 {
     let mut fd = -1;
@@ -415,12 +400,10 @@ where
     };
     let fd = *DRIVER_FD.get_or_init(grab_fd);
     if fd < 0 { return Ok(()); }
+    
     unsafe {
-        #[cfg(target_env = "gnu")]
-        let _ = libc::ioctl(fd as libc::c_int, KSU_IOCTL_ADD_TRY_UMOUNT as u64, &cmd);
-        #[cfg(not(target_env = "gnu"))]
-        let _ = libc::ioctl(fd as libc::c_int, KSU_IOCTL_ADD_TRY_UMOUNT as i32, &cmd);
-    };
+        ksu_add_try_umount(fd, &cmd)?;
+    }
     Ok(())
 }
 
@@ -439,15 +422,10 @@ pub fn ksu_nuke_sysfs(target: &str) -> Result<()> {
     if fd < 0 {
         bail!("KSU driver not available");
     }
-    let ret = unsafe {
-        #[cfg(target_env = "gnu")]
-        let r = libc::ioctl(fd as libc::c_int, KSU_IOCTL_NUKE_EXT4_SYSFS as u64, &cmd);
-        #[cfg(not(target_env = "gnu"))]
-        let r = libc::ioctl(fd as libc::c_int, KSU_IOCTL_NUKE_EXT4_SYSFS as i32, &cmd);
-        r
-    };
-    if ret != 0 {
-        bail!("ioctl failed with code {}", ret);
+    
+    unsafe {
+        ksu_nuke_ext4_sysfs(fd, &cmd)
+            .context(" Nuke Sysfs ioctl failed")?;
     }
     Ok(())
 }
