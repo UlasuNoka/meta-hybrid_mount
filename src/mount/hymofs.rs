@@ -7,6 +7,7 @@ use anyhow::{Context, Result};
 use log::{debug, warn};
 use walkdir::WalkDir;
 use nix::{ioctl_read, ioctl_readwrite, ioctl_write_ptr, ioctl_none};
+use serde::Serialize;
 
 const DEV_PATH: &str = "/dev/hymo_ctl";
 const HYMO_IOC_MAGIC: u8 = 0xE0;
@@ -42,6 +43,29 @@ pub enum HymoFsStatus {
     NotPresent,
     KernelTooOld,
     ModuleTooOld,
+}
+
+#[derive(Serialize, Default, Debug)]
+pub struct HymoRuleRedirect {
+    pub src: String,
+    pub target: String,
+    pub type_: i32,
+}
+
+#[derive(Serialize, Default, Debug)]
+pub struct HymoRules {
+    pub redirects: Vec<HymoRuleRedirect>,
+    pub hides: Vec<String>,
+    pub injects: Vec<String>,
+    pub xattr_sbs: Vec<String>,
+}
+
+#[derive(Serialize, Default, Debug)]
+pub struct HymoKernelStatus {
+    pub available: bool,
+    pub protocol_version: i32,
+    pub config_version: i32,
+    pub rules: HymoRules,
 }
 
 pub struct HymoFs;
@@ -152,6 +176,65 @@ impl HymoFs {
 
         let c_str = unsafe { CStr::from_ptr(buffer.as_ptr() as *const std::ffi::c_char) };
         Ok(c_str.to_string_lossy().into_owned())
+    }
+
+    pub fn get_kernel_status() -> Result<HymoKernelStatus> {
+        if !Self::is_available() {
+            return Ok(HymoKernelStatus {
+                available: false,
+                ..Default::default()
+            });
+        }
+
+        let raw_info = Self::list_active_rules().unwrap_or_default();
+        let mut status = HymoKernelStatus {
+            available: true,
+            ..Default::default()
+        };
+
+        for line in raw_info.lines() {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.is_empty() { continue; }
+
+            match parts[0] {
+                "HymoFS" => {
+                    if parts.len() >= 3 {
+                        if parts[1] == "Protocol:" {
+                            status.protocol_version = parts[2].parse().unwrap_or(0);
+                        } else if parts[1] == "Config" && parts.get(2) == Some(&"Version:") {
+                            status.config_version = parts[3].parse().unwrap_or(0);
+                        }
+                    }
+                },
+                "add" => {
+                    if parts.len() >= 4 {
+                        status.rules.redirects.push(HymoRuleRedirect {
+                            src: parts[1].to_string(),
+                            target: parts[2].to_string(),
+                            type_: parts[3].parse().unwrap_or(0),
+                        });
+                    }
+                },
+                "hide" => {
+                    if parts.len() >= 2 {
+                        status.rules.hides.push(parts[1].to_string());
+                    }
+                },
+                "inject" => {
+                    if parts.len() >= 2 {
+                        status.rules.injects.push(parts[1].to_string());
+                    }
+                },
+                "hide_xattr_sb" => {
+                    if parts.len() >= 2 {
+                        status.rules.xattr_sbs.push(parts[1].to_string());
+                    }
+                },
+                _ => {}
+            }
+        }
+
+        Ok(status)
     }
 
     pub fn inject_directory(target_base: &Path, module_dir: &Path) -> Result<()> {
@@ -289,4 +372,3 @@ impl HymoFs {
              .context("HymoFS reorder_mnt_id failed")?;
         Ok(())
     }
-}

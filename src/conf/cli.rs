@@ -46,4 +46,12 @@ pub enum Commands {
     Modules,
     Conflicts,
     Diagnostics,
-}
+    #[command(name = "hymo-status")]
+    HymoStatus,
+    #[command(name = "hymo-action")]
+    HymoAction {
+        #[arg(long)]
+        action: String,
+        #[arg(long)]
+        value: Option<String>,
+    },
