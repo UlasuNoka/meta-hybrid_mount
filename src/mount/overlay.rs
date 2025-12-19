@@ -12,6 +12,22 @@ use crate::utils::send_unmountable;
 
 const PAGE_LIMIT: usize = 4000;
 
+struct StagedMountGuard {
+    mounts: Vec<PathBuf>,
+    committed: bool,
+}
+
+impl Drop for StagedMountGuard {
+    fn drop(&mut self) {
+        if !self.committed {
+            for path in self.mounts.iter().rev() {
+                let _ = unmount(path, UnmountFlags::DETACH);
+                let _ = fs::remove_dir(path);
+            }
+        }
+    }
+}
+
 pub fn mount_overlayfs(
     lower_dirs: &[String],
     lowest: &str,
@@ -76,6 +92,10 @@ fn mount_overlayfs_staged(
     }
 
     let mut current_base = lowest.to_string();
+    let mut guard = StagedMountGuard {
+        mounts: Vec::new(),
+        committed: false,
+    };
     
     for (i, batch) in batches.iter().rev().enumerate() {
         let is_last_layer = i == batches.len() - 1; 
@@ -109,8 +129,13 @@ fn mount_overlayfs_staged(
             disable_umount
         )?;
 
-        current_base = target_path.to_string_lossy().to_string();
+        if !is_last_layer {
+            guard.mounts.push(target_path.clone());
+            current_base = target_path.to_string_lossy().to_string();
+        }
     }
+
+    guard.committed = true;
     Ok(())
 }
 
