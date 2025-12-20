@@ -23,6 +23,7 @@ use tracing_subscriber::{
     EnvFilter,
 };
 use tracing_appender::non_blocking::WorkerGuard;
+use regex_lite::Regex;
 use crate::defs;
 use crate::defs::TMPFS_CANDIDATES;
 
@@ -97,6 +98,20 @@ pub fn init_logging(verbose: bool, log_path: &Path) -> Result<WorkerGuard> {
         eprintln!("{}", error_msg);
     }));
     Ok(guard)
+}
+
+/// Validate `module_id` format and security
+/// Module ID must match: ^[a-zA-Z][a-zA-Z0-9._-]+$
+/// - Must start with a letter (a-zA-Z)
+/// - Followed by one or more alphanumeric, dot, underscore, or hyphen characters
+/// - Minimum length: 2 characters
+pub fn validate_module_id(module_id: &str) -> Result<()> {
+    let re = Regex::new(r"^[a-zA-Z][a-zA-Z0-9._-]+$")?;
+    if re.is_match(module_id) {
+        Ok(())
+    } else {
+        bail!("Invalid module ID: '{module_id}'. Must match /^[a-zA-Z][a-zA-Z0-9._-]+$/")
+    }
 }
 
 pub fn lsetfilecon<P: AsRef<Path>>(path: P, con: &str) -> Result<()> {
