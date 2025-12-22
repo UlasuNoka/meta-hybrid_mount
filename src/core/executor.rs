@@ -191,41 +191,61 @@ pub fn execute(plan: &MountPlan, config: &config::Config) -> Result<ExecutionRes
                     .unwrap_or_else(|| "unknown".to_string());
 
                 let mirror_base = Path::new(defs::HYMO_MIRROR_DIR).join(&op.module_id);
-                if let Err(e) = std::fs::create_dir_all(&mirror_base) {
-                    log::warn!("Failed to create mirror dir for {}: {}", op.module_id, e);
+                let mirror_partition = mirror_base.join(&part_name);
+
+                if let Err(e) = std::fs::create_dir_all(&mirror_partition) {
+                    log::warn!(
+                        "Failed to create mirror dir for {}/{}: {}",
+                        op.module_id,
+                        part_name,
+                        e
+                    );
                     continue;
                 }
 
-                if let Err(e) = overlay::bind_mount(&op.source, &mirror_base, true) {
+                if let Err(e) = overlay::bind_mount(&op.source, &mirror_partition, true) {
                     log::warn!("Failed to bind mount mirror for {}: {}", op.module_id, e);
+                    continue;
                 }
 
                 log::debug!(
-                    "Injecting {} (via mirror) -> {}",
+                    "Scanning {} (via mirror) -> {}",
                     op.module_id,
                     op.target.display()
                 );
 
-                match HymoFs::inject_directory(&op.target, &mirror_base) {
-                    Ok(_) => {
-                        if let Some(root) = extract_module_root(&op.source) {
-                            global_success_map
-                                .entry(root)
-                                .or_default()
-                                .insert(part_name);
+                let mut partial_failure = false;
+                for entry in WalkDir::new(&mirror_partition).min_depth(1).max_depth(1) {
+                    match entry {
+                        Ok(e) => {
+                            let file_name = e.file_name();
+                            let source_path = e.path();
+                            let target_child = op.target.join(file_name);
+                            if let Err(err) = HymoFs::inject_directory(&target_child, source_path) {
+                                log::warn!("Failed to inject {}: {}", target_child.display(), err);
+                                partial_failure = true;
+                            }
+                        }
+                        Err(err) => {
+                            log::warn!(
+                                "Error reading directory entry in {}: {}",
+                                mirror_partition.display(),
+                                err
+                            );
+                            partial_failure = true;
                         }
                     }
-                    Err(e) => {
-                        log::error!(
-                            "HymoFS failed for {}: {}. Fallback to Magic Mount.",
-                            op.module_id,
-                            e
-                        );
-                        if let Some(root) = extract_module_root(&op.source) {
-                            magic_queue.push(root);
-                        }
-                        final_hymo_ids.remove(&op.module_id);
+                }
+
+                if !partial_failure {
+                    if let Some(root) = extract_module_root(&op.source) {
+                        global_success_map
+                            .entry(root)
+                            .or_default()
+                            .insert(part_name);
                     }
+                } else {
+                    log::warn!("Partial injection failure for module {}", op.module_id);
                 }
             }
         } else {
