@@ -20,6 +20,7 @@ use crate::defs::{KSU_OVERLAY_SOURCE, RUN_DIR};
 use crate::utils::send_unmountable;
 
 const PAGE_LIMIT: usize = 4000;
+const MS_MOVE: u32 = 8192;
 
 enum StashedMount {
     Modern(OwnedFd),
@@ -104,7 +105,7 @@ fn clone_path_context(source: &Path, target: &Path) -> Result<()> {
         Ok(len) => {
             let _ = setxattr(target, name, &buf[..len], XattrFlags::empty());
         }
-        Err(rustix::io::Errno::ERANGE) => {
+        Err(rustix::io::Errno::RANGE) => {
             let mut large_buf = vec![0u8; 1024];
             if let Ok(len) = getxattr(source, name, &mut large_buf) {
                 let _ = setxattr(target, name, &large_buf[..len], XattrFlags::empty());
@@ -129,12 +130,10 @@ fn recursive_context_align(
             let entry = entry?;
             recursive_context_align(target_base, module_base, &entry.path())?;
         }
-    } else {
-        if let Ok(relative) = current_module_path.strip_prefix(module_base) {
-            let target_path = target_base.join(relative);
-            if target_path.exists() {
-                let _ = clone_path_context(&target_path, current_module_path);
-            }
+    } else if let Ok(relative) = current_module_path.strip_prefix(module_base) {
+        let target_path = target_base.join(relative);
+        if target_path.exists() {
+            let _ = clone_path_context(&target_path, current_module_path);
         }
     }
     Ok(())
@@ -393,7 +392,7 @@ pub fn bind_mount(from: impl AsRef<Path>, to: impl AsRef<Path>) -> Result<()> {
                 to.as_ref(),
                 "",
                 MountFlags::BIND | MountFlags::REC,
-                "",
+                None,
             )
             .context("Legacy bind mount failed")?;
             #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -430,7 +429,9 @@ fn mount_overlay_child(
                 .with_context(|| format!("move_mount failed to {}", mount_point))?;
             }
             StashedMount::Legacy(path) => {
-                mount(&path, mount_point, "", MountFlags::MOVE, "")
+                #[allow(clippy::useless_conversion)]
+                let flags = MountFlags::from_bits_retain(MS_MOVE.into());
+                mount(&path, mount_point, "", flags, None)
                     .with_context(|| format!("legacy move mount failed to {}", mount_point))?;
                 let _ = fs::remove_dir(path);
             }
@@ -486,7 +487,9 @@ fn mount_overlay_child(
                 )?;
             }
             StashedMount::Legacy(path) => {
-                mount(&path, mount_point, "", MountFlags::MOVE, "")?;
+                #[allow(clippy::useless_conversion)]
+                let flags = MountFlags::from_bits_retain(MS_MOVE.into());
+                mount(&path, mount_point, "", flags, None)?;
                 let _ = fs::remove_dir(path);
             }
         }
@@ -568,7 +571,7 @@ pub fn mount_overlay(
                     &stash_path,
                     "",
                     MountFlags::BIND | MountFlags::REC,
-                    "",
+                    None,
                 ) {
                     warn!("Legacy stash failed for {}: {}", mount_point, err);
                     continue;
