@@ -161,7 +161,7 @@ pub fn execute(plan: &MountPlan, config: &config::Config) -> Result<ExecutionRes
 
     repair_rw_contexts();
 
-    log::info!(">> Phase 2: OverlayFS Execution...");
+    log::info!(">> Phase 1: OverlayFS Execution...");
 
     let overlay_results: Vec<OverlayResult> = plan
         .overlay_ops
@@ -274,7 +274,7 @@ pub fn execute(plan: &MountPlan, config: &config::Config) -> Result<ExecutionRes
         }
 
         log::info!(
-            ">> Phase 3: Magic Mount (Fallback) using {}",
+            ">> Phase 2: Magic Mount (Fallback) using {}",
             tempdir.display()
         );
 
