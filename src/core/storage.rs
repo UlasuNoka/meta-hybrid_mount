@@ -111,10 +111,6 @@ pub fn setup(
 
         try_hide(mnt_base);
 
-        if img_path.exists() {
-            let _ = fs::remove_file(img_path);
-        }
-
         return Ok(StorageHandle {
             mount_point: mnt_base.to_path_buf(),
             mode: "erofs_staging".to_string(),
@@ -124,12 +120,6 @@ pub fn setup(
 
     if !force_ext4 && try_setup_tmpfs(mnt_base, mount_source)? {
         try_hide(mnt_base);
-
-        if img_path.exists()
-            && let Err(e) = fs::remove_file(img_path)
-        {
-            log::warn!("Failed to remove unused modules.img: {}", e);
-        }
 
         let erofs_path = img_path.with_extension("erofs");
 

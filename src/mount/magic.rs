@@ -140,14 +140,13 @@ fn process_module(
         if path_of_root.is_dir() {
             let name = partition.clone();
             let mod_part = path.join(partition);
-            if mod_part.is_dir() {
-                if !path_of_system.exists() || path_of_system.is_symlink() {
-                    let node = root
-                        .children
-                        .entry(name)
-                        .or_insert_with(|| Node::new_root(partition));
-                    node.collect_module_files(&mod_part)?;
-                }
+            // Fix: Collapsed if statement to satisfy clippy
+            if mod_part.is_dir() && (!path_of_system.exists() || path_of_system.is_symlink()) {
+                let node = root
+                    .children
+                    .entry(name)
+                    .or_insert_with(|| Node::new_root(partition));
+                node.collect_module_files(&mod_part)?;
             }
         }
     }
