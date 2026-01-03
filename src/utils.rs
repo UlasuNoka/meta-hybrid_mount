@@ -69,11 +69,16 @@ where
 }
 
 pub fn init_logging(verbose: bool, log_path: &Path) -> Result<WorkerGuard> {
-    if let Some(parent) = log_path.parent() {
-        create_dir_all(parent)?;
-    }
-    let file_appender =
-        tracing_appender::rolling::never(log_path.parent().unwrap(), log_path.file_name().unwrap());
+    let parent = log_path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("Invalid log path parent"))?;
+    let file_name = log_path
+        .file_name()
+        .ok_or_else(|| anyhow::anyhow!("Invalid log filename"))?;
+
+    create_dir_all(parent)?;
+
+    let file_appender = tracing_appender::rolling::never(parent, file_name);
     let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
     let filter = if verbose {
         EnvFilter::new("debug")
@@ -122,6 +127,28 @@ pub fn init_logging(verbose: bool, log_path: &Path) -> Result<WorkerGuard> {
     }));
 
     Ok(guard)
+}
+
+pub fn atomic_write<P: AsRef<Path>, C: AsRef<[u8]>>(path: P, content: C) -> Result<()> {
+    let path = path.as_ref();
+    let dir = path.parent().unwrap_or_else(|| Path::new("."));
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let pid = std::process::id();
+    let temp_name = format!(".{}_{}.tmp", pid, now);
+    let temp_file = dir.join(temp_name);
+
+    {
+        let mut file = File::create(&temp_file)?;
+        file.write_all(content.as_ref())?;
+        file.sync_all()?;
+    }
+
+    fs::rename(&temp_file, path)?;
+    Ok(())
 }
 
 pub fn validate_module_id(module_id: &str) -> Result<()> {

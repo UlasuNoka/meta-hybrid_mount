@@ -28,9 +28,8 @@ use crate::{
 
 const ROOT_PARTITIONS: [&str; 4] = ["vendor", "system_ext", "product", "odm"];
 
-// Atomic counters from refactored version
-static MOUNTDED_FILES: AtomicU32 = AtomicU32::new(0);
-static MOUNTDED_SYMBOLS_FILES: AtomicU32 = AtomicU32::new(0);
+static MOUNTED_FILES: AtomicU32 = AtomicU32::new(0);
+static MOUNTED_SYMBOLS_FILES: AtomicU32 = AtomicU32::new(0);
 
 fn clone_symlink<S>(src: S, dst: S) -> Result<()>
 where
@@ -142,7 +141,6 @@ fn process_module(
             let name = partition.clone();
             let mod_part = path.join(partition);
             if mod_part.is_dir() {
-                // If system link exists or just root dir, we attach to root
                 if !path_of_system.exists() || path_of_system.is_symlink() {
                     let node = root
                         .children
@@ -291,8 +289,8 @@ impl MagicMount {
                 log::warn!("make file {} ro: {e:#?}", target_path.display());
             }
 
-            let mounted = MOUNTDED_FILES.load(std::sync::atomic::Ordering::Relaxed) + 1;
-            MOUNTDED_FILES.store(mounted, std::sync::atomic::Ordering::Relaxed);
+            let mounted = MOUNTED_FILES.load(std::sync::atomic::Ordering::Relaxed) + 1;
+            MOUNTED_FILES.store(mounted, std::sync::atomic::Ordering::Relaxed);
             Ok(())
         } else {
             bail!("cannot mount root file {}!", self.path.display());
@@ -303,8 +301,8 @@ impl MagicMount {
         if let Some(module_path) = &self.node.module_path {
             clone_symlink(module_path, &self.work_dir_path)?;
 
-            let mounted = MOUNTDED_SYMBOLS_FILES.load(std::sync::atomic::Ordering::Relaxed) + 1;
-            MOUNTDED_SYMBOLS_FILES.store(mounted, std::sync::atomic::Ordering::Relaxed);
+            let mounted = MOUNTED_SYMBOLS_FILES.load(std::sync::atomic::Ordering::Relaxed) + 1;
+            MOUNTED_SYMBOLS_FILES.store(mounted, std::sync::atomic::Ordering::Relaxed);
             Ok(())
         } else {
             bail!("cannot mount root symlink {}!", self.path.display());
@@ -315,10 +313,8 @@ impl MagicMount {
         let mut create_tmpfs =
             !self.has_tmpfs && self.node.replace && self.node.module_path.is_some();
         if !self.has_tmpfs && !create_tmpfs {
-            // Check if we need tmpfs based on child types
-            for it in &mut self.node.children {
-                let (name, node) = it;
-                let real_path = self.path.join(name);
+            for node in self.node.children.values() {
+                let real_path = self.path.join(&node.name);
                 let need = match node.file_type {
                     NodeFileType::Symlink => true,
                     NodeFileType::Whiteout => real_path.exists(),
@@ -333,7 +329,6 @@ impl MagicMount {
                 };
                 if need {
                     if node.module_path.is_none() {
-                        node.skip = true;
                         continue;
                     }
                     create_tmpfs = true;
@@ -388,7 +383,6 @@ impl MagicMount {
             }
         }
 
-        // Process remaining children (new files/dirs)
         for node in self.node.children.values() {
             if !node.skip {
                 Self::new(
@@ -431,7 +425,6 @@ pub fn mount_partitions(
     #[cfg(any(target_os = "linux", target_os = "android"))] disable_umount: bool,
     #[cfg(not(any(target_os = "linux", target_os = "android")))] _disable_umount: bool,
 ) -> Result<()> {
-    // Collect phase: retains planner compatibility
     if let Some(root) = collect_module_files(module_paths, extra_partitions, &exclusions)? {
         let tmp_dir = tmp_path.join("workdir");
         ensure_dir_exists(&tmp_dir)?;
@@ -466,9 +459,8 @@ pub fn mount_partitions(
 
         fs::remove_dir(tmp_dir).ok();
 
-        // Log stats
-        let files = MOUNTDED_FILES.load(std::sync::atomic::Ordering::Relaxed);
-        let symlinks = MOUNTDED_SYMBOLS_FILES.load(std::sync::atomic::Ordering::Relaxed);
+        let files = MOUNTED_FILES.load(std::sync::atomic::Ordering::Relaxed);
+        let symlinks = MOUNTED_SYMBOLS_FILES.load(std::sync::atomic::Ordering::Relaxed);
         log::info!(
             "Magic Mount: {} files, {} symlinks processed.",
             files,
