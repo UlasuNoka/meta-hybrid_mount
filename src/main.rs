@@ -1,6 +1,3 @@
-// Copyright 2025 Meta-Hybrid Mount Authors
-// SPDX-License-Identifier: GPL-3.0-or-later
-
 mod conf;
 mod core;
 mod defs;
@@ -210,6 +207,12 @@ fn main() -> Result<()> {
 
     if let Ok(version) = std::fs::read_to_string("/proc/sys/kernel/osrelease") {
         log::debug!("Kernel Version: {}", version.trim());
+    }
+
+    if let Some(ver) = ksu::version() {
+        log::info!("KernelSU Version: {}", ver);
+    } else {
+        log::warn!("KernelSU not detected or driver not accessible!");
     }
 
     if config.disable_umount {
