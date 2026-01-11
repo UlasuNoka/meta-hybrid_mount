@@ -166,6 +166,7 @@ pub fn execute(
                 &lowerdir_strings,
                 work_opt,
                 upper_opt,
+                &config.mountsource,
             ) {
                 tracing::warn!(
                     "OverlayFS failed for {}: {}. Triggering fallback.",

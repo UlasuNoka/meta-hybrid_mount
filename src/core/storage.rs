@@ -130,7 +130,7 @@ pub fn setup(
     if use_erofs && utils::is_erofs_supported() {
         let erofs_path = img_path.with_extension("erofs");
 
-        overlayfs::mount_tmpfs(mnt_base)?;
+        overlayfs::mount_tmpfs(mnt_base, mount_source)?;
 
         try_hide(mnt_base);
 
@@ -142,7 +142,7 @@ pub fn setup(
         });
     }
 
-    if !force_ext4 && try_setup_tmpfs(mnt_base)? {
+    if !force_ext4 && try_setup_tmpfs(mnt_base, mount_source)? {
         try_hide(mnt_base);
 
         let erofs_path = img_path.with_extension("erofs");
@@ -166,8 +166,8 @@ pub fn setup(
     Ok(handle)
 }
 
-fn try_setup_tmpfs(target: &Path) -> Result<bool> {
-    if overlayfs::mount_tmpfs(target).is_ok() {
+fn try_setup_tmpfs(target: &Path, mount_source: &str) -> Result<bool> {
+    if overlayfs::mount_tmpfs(target, mount_source).is_ok() {
         if utils::is_overlay_xattr_supported(target) {
             tracing::info!("Tmpfs mounted and supports xattrs (CONFIG_TMPFS_XATTR=y).");
             return Ok(true);

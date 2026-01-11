@@ -16,7 +16,7 @@ use rustix::{
     },
 };
 
-use crate::{defs::OVERLAY_SOURCE, mount::overlayfs::utils::umount_dir};
+use crate::mount::overlayfs::utils::umount_dir;
 
 pub fn mount_overlayfs(
     lower_dirs: &[String],
@@ -24,6 +24,7 @@ pub fn mount_overlayfs(
     upperdir: Option<PathBuf>,
     workdir: Option<PathBuf>,
     dest: impl AsRef<Path>,
+    mount_source: &str,
 ) -> Result<()> {
     let lowerdir_config = lower_dirs
         .iter()
@@ -32,11 +33,12 @@ pub fn mount_overlayfs(
         .collect::<Vec<_>>()
         .join(":");
     tracing::info!(
-        "mount overlayfs on {:?}, lowerdir={}, upperdir={:?}, workdir={:?}",
+        "mount overlayfs on {:?}, lowerdir={}, upperdir={:?}, workdir={:?}, source={}",
         dest.as_ref(),
         lowerdir_config,
         upperdir,
-        workdir
+        workdir,
+        mount_source
     );
 
     let upperdir = upperdir
@@ -54,7 +56,7 @@ pub fn mount_overlayfs(
             fsconfig_set_string(fs, "upperdir", upperdir)?;
             fsconfig_set_string(fs, "workdir", workdir)?;
         }
-        fsconfig_set_string(fs, "source", OVERLAY_SOURCE)?;
+        fsconfig_set_string(fs, "source", mount_source)?;
         fsconfig_create(fs)?;
         let mount = fsmount(fs, FsMountFlags::FSMOUNT_CLOEXEC, MountAttrFlags::empty())?;
         move_mount(
@@ -73,7 +75,7 @@ pub fn mount_overlayfs(
             data = format!("{data},upperdir={upperdir},workdir={workdir}");
         }
         mount(
-            OVERLAY_SOURCE,
+            mount_source,
             dest.as_ref(),
             "overlay",
             MountFlags::empty(),
@@ -84,10 +86,10 @@ pub fn mount_overlayfs(
 }
 
 #[allow(dead_code)]
-pub fn mount_devpts(dest: impl AsRef<Path>) -> Result<()> {
+pub fn mount_devpts(dest: impl AsRef<Path>, mount_source: &str) -> Result<()> {
     create_dir(dest.as_ref())?;
     mount(
-        OVERLAY_SOURCE,
+        mount_source,
         dest.as_ref(),
         "devpts",
         MountFlags::empty(),
@@ -98,12 +100,16 @@ pub fn mount_devpts(dest: impl AsRef<Path>) -> Result<()> {
 }
 
 #[allow(dead_code)]
-pub fn mount_tmpfs(dest: impl AsRef<Path>) -> Result<()> {
-    tracing::info!("mount tmpfs on {}", dest.as_ref().display());
+pub fn mount_tmpfs(dest: impl AsRef<Path>, mount_source: &str) -> Result<()> {
+    tracing::info!(
+        "mount tmpfs on {} (source: {})",
+        dest.as_ref().display(),
+        mount_source
+    );
     match fsopen("tmpfs", FsOpenFlags::FSOPEN_CLOEXEC) {
         Result::Ok(fs) => {
             let fs = fs.as_fd();
-            fsconfig_set_string(fs, "source", OVERLAY_SOURCE)?;
+            fsconfig_set_string(fs, "source", mount_source)?;
             fsconfig_create(fs)?;
             let mount = fsmount(fs, FsMountFlags::FSMOUNT_CLOEXEC, MountAttrFlags::empty())?;
             move_mount(
@@ -117,10 +123,8 @@ pub fn mount_tmpfs(dest: impl AsRef<Path>) -> Result<()> {
         _ => {
             use rustix::mount::{MountFlags, mount};
 
-            use crate::defs::OVERLAY_SOURCE;
-
             mount(
-                OVERLAY_SOURCE,
+                mount_source,
                 dest.as_ref(),
                 "tmpfs",
                 MountFlags::empty(),
@@ -130,7 +134,7 @@ pub fn mount_tmpfs(dest: impl AsRef<Path>) -> Result<()> {
     }
     mount_change(dest.as_ref(), MountPropagationFlags::PRIVATE).context("make tmpfs private")?;
     let pts_dir = format!("{}/pts", dest.as_ref().display());
-    if let Err(e) = mount_devpts(pts_dir) {
+    if let Err(e) = mount_devpts(pts_dir, mount_source) {
         tracing::warn!("do devpts mount failed: {}", e);
     }
     Ok(())
@@ -176,6 +180,7 @@ fn mount_overlay_child(
     relative: &String,
     module_roots: &Vec<String>,
     stock_root: &String,
+    mount_source: &str,
 ) -> Result<()> {
     if !module_roots
         .iter()
@@ -199,7 +204,14 @@ fn mount_overlay_child(
     if lower_dirs.is_empty() {
         return Ok(());
     }
-    if let Err(e) = mount_overlayfs(&lower_dirs, stock_root, None, None, mount_point) {
+    if let Err(e) = mount_overlayfs(
+        &lower_dirs,
+        stock_root,
+        None,
+        None,
+        mount_point,
+        mount_source,
+    ) {
         tracing::warn!("failed: {:#}, fallback to bind mount", e);
         bind_mount(stock_root, mount_point)?;
     }
@@ -211,6 +223,7 @@ pub fn mount_overlay(
     module_roots: &Vec<String>,
     workdir: Option<PathBuf>,
     upperdir: Option<PathBuf>,
+    mount_source: &str,
 ) -> Result<()> {
     tracing::info!("mount overlay for {}", root);
     std::env::set_current_dir(root).with_context(|| format!("failed to chdir to {root}"))?;
@@ -230,7 +243,7 @@ pub fn mount_overlay(
     mount_seq.sort();
     mount_seq.dedup();
 
-    mount_overlayfs(module_roots, root, upperdir, workdir, root)
+    mount_overlayfs(module_roots, root, upperdir, workdir, root, mount_source)
         .with_context(|| "mount overlayfs for root failed")?;
     for mount_point in mount_seq.iter() {
         let Some(mount_point) = mount_point else {
@@ -241,7 +254,13 @@ pub fn mount_overlay(
         if !Path::new(&stock_root).exists() {
             continue;
         }
-        if let Err(e) = mount_overlay_child(mount_point, &relative, module_roots, &stock_root) {
+        if let Err(e) = mount_overlay_child(
+            mount_point,
+            &relative,
+            module_roots,
+            &stock_root,
+            mount_source,
+        ) {
             tracing::warn!(
                 "failed to mount overlay for child {}: {:#}, revert",
                 mount_point,

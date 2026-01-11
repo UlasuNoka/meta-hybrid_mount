@@ -13,7 +13,11 @@ use anyhow::{Result, bail};
 use crate::defs;
 
 #[allow(dead_code)]
-pub fn mount_systemlessly(module_id: HashSet<String>, extra_partitions: &[String]) -> Result<()> {
+pub fn mount_systemlessly(
+    module_id: HashSet<String>,
+    extra_partitions: &[String],
+    mount_source: &str,
+) -> Result<()> {
     let module_dir = Path::new(defs::MODULES_DIR);
     let dir = module_dir.read_dir();
     let Ok(dir) = dir else {
@@ -72,12 +76,12 @@ pub fn mount_systemlessly(module_id: HashSet<String>, extra_partitions: &[String
         }
     }
 
-    if let Err(e) = mount_partition("system", &system_lowerdir) {
+    if let Err(e) = mount_partition("system", &system_lowerdir, mount_source) {
         tracing::warn!("mount system failed: {:#}", e);
     }
 
     for (k, v) in partition_lowerdir {
-        if let Err(e) = mount_partition(k.clone(), &v) {
+        if let Err(e) = mount_partition(k.clone(), &v, mount_source) {
             tracing::warn!("mount {k} failed: {:#}", e);
         }
     }
@@ -86,7 +90,7 @@ pub fn mount_systemlessly(module_id: HashSet<String>, extra_partitions: &[String
 }
 
 #[allow(dead_code)]
-fn mount_partition<S>(partition_name: S, lowerdir: &Vec<String>) -> Result<()>
+fn mount_partition<S>(partition_name: S, lowerdir: &Vec<String>, mount_source: &str) -> Result<()>
 where
     S: AsRef<str>,
 {
@@ -111,5 +115,5 @@ where
         upperdir = Some(system_rw_dir.join(partition_name).join("upperdir"));
     }
 
-    overlayfs::mount_overlay(&partition, lowerdir, workdir, upperdir)
+    overlayfs::mount_overlay(&partition, lowerdir, workdir, upperdir, mount_source)
 }

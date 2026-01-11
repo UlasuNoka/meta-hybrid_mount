@@ -1,6 +1,3 @@
-// Copyright 2025 Meta-Hybrid Mount Authors
-// SPDX-License-Identifier: GPL-3.0-or-later
-
 use std::{
     collections::HashMap,
     fs,
@@ -11,7 +8,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 pub const CONFIG_FILE_DEFAULT: &str = "/data/adb/meta-hybrid/config.toml";
-use crate::defs::DEFAULT_HYBRID_MNT_DIR;
+use crate::defs::{DEFAULT_HYBRID_MNT_DIR, DEFAULT_MOUNT_SOURCE};
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct WinnowingTable {
@@ -107,7 +104,7 @@ fn default_moduledir() -> PathBuf {
 }
 
 fn default_mountsource() -> String {
-    String::from("KSU")
+    String::from(DEFAULT_MOUNT_SOURCE)
 }
 
 fn deserialize_partitions_flexible<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
