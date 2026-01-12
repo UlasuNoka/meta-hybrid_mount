@@ -1,4 +1,7 @@
 #![allow(clippy::module_inception)]
+// Copyright 2025 Meta-Hybrid Mount Authors
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 
 pub mod overlayfs;
 pub mod utils;

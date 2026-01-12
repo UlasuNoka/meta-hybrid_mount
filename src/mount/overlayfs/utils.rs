@@ -1,3 +1,6 @@
+// Copyright 2025 Meta-Hybrid Mount Authors
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 #[cfg(any(target_os = "linux", target_os = "android"))]
 use std::fs;
 #[cfg(any(target_os = "linux", target_os = "android"))]
