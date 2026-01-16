@@ -39,9 +39,9 @@ impl Arch {
     }
     fn android_abi(&self) -> &'static str {
         match self {
-            Arch::Arm64 => "arm64-v8a",
-            Arch::Arm => "armeabi-v7a",
-            Arch::X86_64 => "x86_64",
+            Arch::Arm64 => "aarch64-linux-android",
+            Arch::Arm => "armv7-linux-androideabi",
+            Arch::X86_64 => "x86_64-linux-android",
         }
     }
 }
@@ -150,10 +150,10 @@ fn build_full(
         let bin_name = "meta-hybrid";
         let profile = if release { "release" } else { "debug" };
         let src_bin = Path::new("target")
-            .join(arch.target())
+            .join(arch.android_abi())
             .join(profile)
             .join(bin_name);
-        let stage_bin_dir = stage_dir.join("binaries").join(arch.android_abi());
+        let stage_bin_dir = stage_dir.join("binaries").join(arch.target());
         fs::create_dir_all(&stage_bin_dir)?;
         if src_bin.exists() {
             file::copy(
