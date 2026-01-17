@@ -162,9 +162,10 @@ fn main() -> Result<()> {
 
             for c in report.details {
                 log::warn!(
-                    "   [{}] {} <== {:?}",
+                    "   [{}] /{}/{} <== {:?}",
                     "CONFLICT",
-                    format!("/{}/{}", c.partition, c.relative_path),
+                    c.partition,
+                    c.relative_path,
                     c.contending_modules
                 );
             }
